@@ -654,8 +654,8 @@ def build_ui():
                 refresh_btn = gr.Button("Refresh data")
 
                 with gr.Row():
-                    test_chart = gr.Plot(label="Times tested per tool")
                     dist_chart = gr.Plot(label="Rating distribution per tool")
+                    test_chart = gr.Plot(label="Times tested per tool")
 
                 def get_tool_choices():
                     tools = []
@@ -719,29 +719,10 @@ def build_ui():
                     test_counts = test_counts.fillna(0).astype(int)
                     test_df = test_counts.reset_index()
                     test_df.columns = ["Tool", "Times tested"]
-                    test_df = test_df.sort_values("Times tested", ascending=True).reset_index(drop=True)
+                    # Ascending order: lowest count at top (reverse so first in list = bottom in Plotly)
+                    test_df = test_df.sort_values("Times tested", ascending=False).reset_index(drop=True)
 
-                    # Chart 1: Times tested per tool
-                    hovertexts = [f"<b>{t}</b><br>Times tested: {c}" for t, c in zip(test_df["Tool"], test_df["Times tested"])]
-                    test_fig = go.Figure(
-                        data=[go.Bar(
-                            x=test_df["Times tested"],
-                            y=test_df["Tool"],
-                            orientation="h",
-                            marker_color="#4a90d9",
-                            hovertext=hovertexts,
-                            hoverinfo="text",
-                        )]
-                    )
-                    test_fig.update_layout(
-                        title="Times tested per tool",
-                        xaxis_title="Number of tests",
-                        yaxis_title="",
-                        showlegend=False,
-                    )
-                    test_fig = _chart_layout(test_fig, height=max(400, len(all_tools) * 18))
-
-                    # Chart 2: Rating distribution per tool (stacked bar)
+                    # Chart 1: Rating distribution per tool (stacked bar, first position)
                     rating_colors = ["#d73027", "#fc8d59", "#fee08b", "#91cf60", "#1a9850"]
                     rating_labels = ["1 (Very Poor)", "2 (Below Avg)", "3 (Average)", "4 (Good)", "5 (Excellent)"]
                     dist_fig = go.Figure()
@@ -781,12 +762,32 @@ def build_ui():
                     )
                     dist_fig = _chart_layout(dist_fig, height=max(400, len(all_tools) * 18))
 
+                    # Chart 2: Times tested per tool (second position)
+                    hovertexts = [f"<b>{t}</b><br>Times tested: {c}" for t, c in zip(test_df["Tool"], test_df["Times tested"])]
+                    test_fig = go.Figure(
+                        data=[go.Bar(
+                            x=test_df["Times tested"],
+                            y=test_df["Tool"],
+                            orientation="h",
+                            marker_color="#4a90d9",
+                            hovertext=hovertexts,
+                            hoverinfo="text",
+                        )]
+                    )
+                    test_fig.update_layout(
+                        title="Times tested per tool",
+                        xaxis_title="Number of tests",
+                        yaxis_title="",
+                        showlegend=False,
+                    )
+                    test_fig = _chart_layout(test_fig, height=max(400, len(all_tools) * 18))
+
                     tool_fig = _make_empty_fig("Select a tool above to see its rating distribution")
                     reviews_df = pd.DataFrame()
                     artifacts = []
 
                     artifact_md = _artifacts_to_markdown(artifacts)
-                    return test_fig, dist_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
+                    return dist_fig, test_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
 
                 def on_tool_select(tool_name):
                     if not tool_name:
@@ -797,7 +798,7 @@ def build_ui():
                         )
                     data = load_data()
                     subs = data.get("submissions", [])
-                    subs = [s for s in subs if s["tool"] == tool_name]
+                    subs = [s for s in subs if s.get("tool") == tool_name]
                     if not subs:
                         return (
                             _make_empty_fig(f"No reviews yet for {tool_name}"),
@@ -806,27 +807,34 @@ def build_ui():
                         )
                     df = pd.DataFrame(subs)
                     rating_col = "rating" if "rating" in df.columns else "Rating"
-                    df["rating"] = pd.to_numeric(df[rating_col], errors="coerce").fillna(0).astype(int)
+                    df["rating"] = pd.to_numeric(df.get(rating_col, 0), errors="coerce").fillna(0).astype(int)
                     df = df[df["rating"].between(1, 5)]
-                    rating_counts = df["rating"].value_counts().reindex([1, 2, 3, 4, 5], fill_value=0)
+                    # Count per rating 1-5, ensure order [1,2,3,4,5]
+                    counts = [int(df[df["rating"] == r].shape[0]) for r in [1, 2, 3, 4, 5]]
+                    labels = ["1 (Very Poor)", "2 (Below Avg)", "3 (Average)", "4 (Good)", "5 (Excellent)"]
+                    colors = ["#d73027", "#fc8d59", "#fee08b", "#91cf60", "#1a9850"]
                     fig = go.Figure(
                         data=[go.Bar(
-                            x=["1", "2", "3", "4", "5"],
-                            y=rating_counts.values,
-                            text=rating_counts.values,
-                            textposition="auto",
-                            marker_color=["#d73027", "#fc8d59", "#fee08b", "#91cf60", "#1a9850"],
+                            x=labels,
+                            y=counts,
+                            text=counts,
+                            textposition="outside",
+                            textfont=dict(size=14),
+                            marker_color=colors,
+                            hovertemplate="Rating %{x}<br>Count: %{y}<extra></extra>",
                         )]
                     )
                     fig.update_layout(
                         title=f"Rating distribution: {tool_name}",
-                        xaxis_title="Rating (1=Very Poor, 5=Excellent)",
+                        xaxis_title="Rating",
                         yaxis_title="Count",
                         bargap=0.3,
+                        yaxis=dict(zeroline=True, dtick=1),
                     )
                     fig = _chart_layout(fig)
-                    reviews_df = df[["user", "rating", "notes", "timestamp"]].copy()
-                    reviews_df.columns = ["User", "Rating", "Notes", "Timestamp"]
+                    col_map = {"user": "User", "rating": "Rating", "notes": "Notes", "timestamp": "Timestamp"}
+                    cols = [c for c in col_map if c in df.columns]
+                    reviews_df = df[cols].copy().rename(columns=col_map) if cols else pd.DataFrame()
                     artifacts = []
                     for s in subs:
                         for p in s.get("artifacts", []):
@@ -835,18 +843,18 @@ def build_ui():
                     return fig, reviews_df, artifacts
 
                 def full_refresh(selected_tool=None):
-                    avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, choices = refresh_analytics()
+                    dist_fig, test_fig, tool_fig, reviews_df, artifact_md, choices = refresh_analytics()
                     if selected_tool:
                         tool_fig, reviews_df, artifacts = on_tool_select(selected_tool)
                         artifact_md = _artifacts_to_markdown(artifacts)
-                    return avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, gr.update(choices=choices)
+                    return dist_fig, test_fig, tool_fig, reviews_df, artifact_md, gr.update(choices=choices)
 
                 refresh_btn.click(
                     fn=full_refresh,
                     inputs=[tool_dropdown],
                     outputs=[
-                        test_chart,
                         dist_chart,
+                        test_chart,
                         tool_rating_chart,
                         reviews_display,
                         artifact_display,
@@ -872,8 +880,8 @@ def build_ui():
                 demo.load(
                     fn=on_load,
                     outputs=[
-                        test_chart,
                         dist_chart,
+                        test_chart,
                         tool_rating_chart,
                         reviews_display,
                         artifact_display,
