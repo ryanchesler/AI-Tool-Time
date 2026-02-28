@@ -69,6 +69,7 @@ TOOLS_BY_CATEGORY = {
     ],
 
     "Image Generation & Design": [
+        ("Nano Banana", "https://nano-banana.app/", "Google's AI image generator with Pro-level quality and fast rendering; strong text-in-image and subject consistency."),
         ("ChatGPT Images", "https://openai.com/index/new-chatgpt-images-is-here/", "Generate and edit images directly in ChatGPT."),
         ("Ideogram", "https://ideogram.ai/", "AI image generator with particularly strong text-in-image results."),
         ("Krea", "https://www.krea.ai/", "Real-time AI image generation and enhancement."),
