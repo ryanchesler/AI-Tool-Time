@@ -191,8 +191,6 @@ def _get_artifacts_by_tool():
     """Return {tool_name: [(path, caption), ...]} for all tools with artifacts."""
     data = load_data()
     subs = data.get("submissions", [])
-    if not subs:
-        subs = generate_dummy_data()
     by_tool = {}
     for s in subs:
         for p in s.get("artifacts", []):
@@ -446,6 +444,31 @@ CUSTOM_CSS = """
     background: #f8fafc !important;
     margin-bottom: 1rem !important;
 }
+
+/* Dark mode: adjust category and tool sections */
+.dark .category-section {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%) !important;
+    border-color: #63b3ed !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+.dark .category-section .label-wrap {
+    color: #90cdf4 !important;
+}
+
+.dark .tool-item {
+    background: #2d3748 !important;
+    border-color: #4a5568 !important;
+}
+
+.dark .name-section {
+    background: #2d3748 !important;
+    border-color: #4a5568 !important;
+}
+
+/* Plotly charts: ensure readable in both modes (template handles this) */
+.dark .plotly-graph-div {
+    border-radius: 8px;
+}
 """
 
 
@@ -642,6 +665,7 @@ def build_ui():
                     fig = go.Figure()
                     fig.add_annotation(text=msg, showarrow=False, font=dict(size=16))
                     fig.update_layout(
+                        template="plotly",
                         xaxis=dict(visible=False),
                         yaxis=dict(visible=False),
                         height=200,
@@ -651,11 +675,10 @@ def build_ui():
 
                 def _chart_layout(fig, height=400):
                     fig.update_layout(
+                        template="plotly",
                         height=height,
                         margin=dict(t=50, b=60, l=60, r=40),
                         font=dict(size=12),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
                     )
                     return fig
 
@@ -663,7 +686,8 @@ def build_ui():
                     data = load_data()
                     subs = data.get("submissions", [])
                     if not subs:
-                        subs = generate_dummy_data()
+                        empty_fig = _make_empty_fig("No data yet — add feedback in the Tool Explorer tab")
+                        return empty_fig, empty_fig, _make_empty_fig("Select a tool above"), pd.DataFrame(), "*No artifacts yet*", get_tool_choices()
                     df_subs = pd.DataFrame(subs)
                     agg = df_subs.groupby(["tool", "category"]).agg(
                         Reviews=("rating", "count"),
@@ -734,8 +758,6 @@ def build_ui():
                         )
                     data = load_data()
                     subs = data.get("submissions", [])
-                    if not subs:
-                        subs = generate_dummy_data()
                     subs = [s for s in subs if s["tool"] == tool_name]
                     if not subs:
                         return (
