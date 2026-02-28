@@ -21,6 +21,7 @@ def _patch_gradio_client():
 _patch_gradio_client()
 
 import json
+import logging
 import os
 import random
 import shutil
@@ -293,10 +294,26 @@ def save_ip_name(ip: str, name: str):
             json.dump(mapping, f, indent=2)
 
 
+_logger = logging.getLogger(__name__)
+
+
+def _ffmpeg_available() -> bool:
+    """Check if ffmpeg is available for video conversion."""
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            timeout=5,
+        )
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
 def _convert_video_to_h264(src: Path, dest: Path) -> bool:
     """Convert video to H.264 MP4 for browser playback. Returns True if successful."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "ffmpeg", "-y", "-i", str(src),
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -307,8 +324,20 @@ def _convert_video_to_h264(src: Path, dest: Path) -> bool:
             timeout=300,
             check=True,
         )
-        return dest.exists()
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        if dest.exists():
+            _logger.info("Video converted to H.264: %s -> %s", src, dest)
+            return True
+        _logger.warning("ffmpeg completed but output missing: %s", dest)
+        return False
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode(errors="replace") if e.stderr else str(e)
+        _logger.warning("ffmpeg conversion failed for %s: %s", src, err)
+        return False
+    except FileNotFoundError:
+        _logger.warning("ffmpeg not found; video saved without conversion")
+        return False
+    except subprocess.TimeoutExpired:
+        _logger.warning("ffmpeg conversion timed out for %s", src)
         return False
 
 
@@ -316,11 +345,14 @@ def add_submission(user: str, tool: str, category: str, rating: int, notes: str,
     _ensure_data_dir()
     sub_id = str(uuid.uuid4())
     artifact_paths = []
+    videos_converted = 0
+    videos_saved_without_conversion = 0
     files = uploaded_files if isinstance(uploaded_files, list) else ([uploaded_files] if uploaded_files else [])
     for f in files:
         if f is None:
             continue
-        src = Path(f)
+        path = f.get("path", f) if isinstance(f, dict) else f
+        src = Path(path)
         if not src.exists():
             continue
         ext = (src.suffix or "").lower()
@@ -329,9 +361,11 @@ def add_submission(user: str, tool: str, category: str, rating: int, notes: str,
             dest_h264 = UPLOADS_DIR / f"{sub_id}_{src.stem}_h264.mp4"
             if _convert_video_to_h264(src, dest_h264):
                 artifact_paths.append(str(dest_h264))
+                videos_converted += 1
             else:
                 shutil.copy2(src, dest)
                 artifact_paths.append(str(dest))
+                videos_saved_without_conversion += 1
         else:
             shutil.copy2(src, dest)
             artifact_paths.append(str(dest))
@@ -347,7 +381,19 @@ def add_submission(user: str, tool: str, category: str, rating: int, notes: str,
         "timestamp": datetime.now().isoformat(),
     })
     save_data(data)
-    return sub_id
+    return sub_id, videos_converted, videos_saved_without_conversion
+
+
+def _format_submit_success(tool_name: str, videos_converted: int, videos_saved_without_conversion: int, has_artifacts: bool) -> str:
+    """Build success message with video conversion status and Gallery refresh hint."""
+    msg = f"Thanks! Your feedback for **{tool_name}** has been saved."
+    if videos_converted > 0:
+        msg += " Video converted for browser playback."
+    if videos_saved_without_conversion > 0:
+        msg += " Video saved; install ffmpeg for better compatibility."
+    if has_artifacts:
+        msg += " Refresh the Gallery tab to see your uploads."
+    return msg
 
 
 # --- Custom CSS for section hierarchy ---
@@ -495,8 +541,10 @@ def build_ui():
                                     return gr.update(visible=True, value="Please save your name above first.")
                                 if not (tool_name or "").strip():
                                     return gr.update(visible=True, value="Please select a tool to rate.")
-                                add_submission(user.strip(), tool_name.strip(), "Other", int(rating), notes, files)
-                                return gr.update(visible=True, value=f"Thanks! Your feedback for **{tool_name}** has been saved.")
+                                _, v_conv, v_saved = add_submission(user.strip(), tool_name.strip(), "Other", int(rating), notes, files)
+                                has_artifacts = bool(files)
+                                msg = _format_submit_success(tool_name.strip(), v_conv, v_saved, has_artifacts)
+                                return gr.update(visible=True, value=msg)
 
                             other_submit.click(
                                 fn=on_other_submit,
@@ -539,8 +587,10 @@ def build_ui():
                                         def handler(user, rating, notes, files):
                                             if not (user or "").strip():
                                                 return gr.update(visible=True, value="Please save your name above first.")
-                                            add_submission(user.strip(), tool_name, tool_cat, int(rating), notes, files)
-                                            return gr.update(visible=True, value=f"Thanks! Your feedback for **{tool_name}** has been saved.")
+                                            _, v_conv, v_saved = add_submission(user.strip(), tool_name, tool_cat, int(rating), notes, files)
+                                            has_artifacts = bool(files)
+                                            msg = _format_submit_success(tool_name, v_conv, v_saved, has_artifacts)
+                                            return gr.update(visible=True, value=msg)
 
                                         return handler
 
@@ -892,6 +942,9 @@ def build_ui():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    if not _ffmpeg_available():
+        _logger.warning("ffmpeg not installed; videos will be saved without H.264 conversion (may not play in browser)")
     _ensure_data_dir()
     demo = build_ui()
     demo.launch(share=True, server_port=7863, show_api=False)
