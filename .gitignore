@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# App data (user submissions, artifacts - don't commit)
+data.json
+ip_to_name.json
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
