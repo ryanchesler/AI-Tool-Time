@@ -763,15 +763,18 @@ def build_ui():
                     dist_fig = _chart_layout(dist_fig, height=max(400, len(all_tools) * 18))
 
                     # Chart 2: Times tested per tool (second position)
-                    hovertexts = [f"<b>{t}</b><br>Times tested: {c}" for t, c in zip(test_df["Tool"], test_df["Times tested"])]
+                    # Use explicit lists to ensure bar lengths reflect counts; px.bar handles scaling correctly
+                    x_vals = test_df["Times tested"].astype(int).tolist()
+                    y_vals = test_df["Tool"].tolist()
                     test_fig = go.Figure(
                         data=[go.Bar(
-                            x=test_df["Times tested"],
-                            y=test_df["Tool"],
+                            x=x_vals,
+                            y=y_vals,
                             orientation="h",
                             marker_color="#4a90d9",
-                            hovertext=hovertexts,
-                            hoverinfo="text",
+                            text=x_vals,
+                            textposition="outside",
+                            hovertemplate="<b>%{y}</b><br>Times tested: %{x}<extra></extra>",
                         )]
                     )
                     test_fig.update_layout(
@@ -779,6 +782,7 @@ def build_ui():
                         xaxis_title="Number of tests",
                         yaxis_title="",
                         showlegend=False,
+                        xaxis=dict(type="linear", rangemode="tozero", dtick=1),
                     )
                     test_fig = _chart_layout(test_fig, height=max(400, len(all_tools) * 18))
 
