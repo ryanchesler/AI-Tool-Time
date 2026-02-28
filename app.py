@@ -654,8 +654,8 @@ def build_ui():
                 refresh_btn = gr.Button("Refresh data")
 
                 with gr.Row():
-                    avg_chart = gr.Plot(label="Average rating per tool")
-                    dist_chart = gr.Plot(label="Distribution of all ratings (1-5)")
+                    test_chart = gr.Plot(label="Times tested per tool")
+                    dist_chart = gr.Plot(label="Rating distribution per tool")
 
                 def get_tool_choices():
                     tools = []
@@ -697,75 +697,96 @@ def build_ui():
                     return fig
 
                 def refresh_analytics():
+                    all_tools = []
+                    for tools_list in get_all_tools_by_category().values():
+                        for item in tools_list:
+                            all_tools.append(item[0])
+                    all_tools = sorted(set(all_tools))
+
                     data = load_data()
                     subs = data.get("submissions", [])
-                    if not subs:
+                    if not subs and not all_tools:
                         empty_fig = _make_empty_fig("No data yet — add feedback in the Tool Explorer tab")
                         return empty_fig, empty_fig, _make_empty_fig("Select a tool above"), pd.DataFrame(), "*No artifacts yet*", get_tool_choices()
-                    df_subs = pd.DataFrame(subs)
-                    # Normalize rating column (handle Rating/rating, str/int/float)
-                    rating_col = "rating" if "rating" in df_subs.columns else "Rating"
-                    df_subs["rating"] = pd.to_numeric(df_subs[rating_col], errors="coerce").fillna(0).astype(int)
-                    df_subs = df_subs[df_subs["rating"].between(1, 5)]
-                    agg = df_subs.groupby(["tool", "category"]).agg(
-                        Reviews=("rating", "count"),
-                        Avg_Rating=("rating", "mean"),
-                    ).reset_index()
-                    agg.columns = ["Tool", "Category", "Reviews", "Avg Rating"]
-                    agg["Avg Rating"] = agg["Avg Rating"].round(2)
-                    df = agg.sort_values("Avg Rating", ascending=True).reset_index(drop=True)
+                    df_subs = pd.DataFrame(subs) if subs else pd.DataFrame(columns=["tool", "rating"])
+                    if not df_subs.empty:
+                        rating_col = "rating" if "rating" in df_subs.columns else "Rating"
+                        df_subs["rating"] = pd.to_numeric(df_subs.get(rating_col, 0), errors="coerce").fillna(0).astype(int)
+                        df_subs = df_subs[df_subs["rating"].between(1, 5)]
 
-                    hovertexts = [
-                        f"<b>{row['Tool']}</b><br>Avg Rating: {row['Avg Rating']:.2f}<br>Reviews: {row['Reviews']}"
-                        for _, row in df.iterrows()
-                    ]
-                    avg_fig = go.Figure(
+                    # Test count per tool (include all tools, 0 if not tested)
+                    test_counts = df_subs.groupby("tool").size().reindex(all_tools, fill_value=0) if not df_subs.empty else pd.Series(0, index=all_tools)
+                    test_counts = test_counts.fillna(0).astype(int)
+                    test_df = test_counts.reset_index()
+                    test_df.columns = ["Tool", "Times tested"]
+                    test_df = test_df.sort_values("Times tested", ascending=True).reset_index(drop=True)
+
+                    # Chart 1: Times tested per tool
+                    hovertexts = [f"<b>{t}</b><br>Times tested: {c}" for t, c in zip(test_df["Tool"], test_df["Times tested"])]
+                    test_fig = go.Figure(
                         data=[go.Bar(
-                            x=df["Avg Rating"],
-                            y=df["Tool"],
+                            x=test_df["Times tested"],
+                            y=test_df["Tool"],
                             orientation="h",
-                            marker=dict(
-                                color=df["Avg Rating"].tolist(),
-                                colorscale="RdYlGn",
-                                cmin=1,
-                                cmax=5,
-                                showscale=False,
-                            ),
+                            marker_color="#4a90d9",
                             hovertext=hovertexts,
                             hoverinfo="text",
                         )]
                     )
-                    avg_fig.update_layout(
-                        title="Average rating per tool",
-                        xaxis_title="Average Rating",
+                    test_fig.update_layout(
+                        title="Times tested per tool",
+                        xaxis_title="Number of tests",
                         yaxis_title="",
-                        xaxis=dict(range=[0.5, 5.5], dtick=1),
                         showlegend=False,
                     )
-                    avg_fig = _chart_layout(avg_fig, height=max(400, len(df) * 18))
+                    test_fig = _chart_layout(test_fig, height=max(400, len(all_tools) * 18))
 
-                    rating_counts = df_subs["rating"].value_counts().reindex([1, 2, 3, 4, 5], fill_value=0)
-                    dist_fig = go.Figure(
-                        data=[go.Bar(
-                            x=["1 (Very Poor)", "2 (Below Avg)", "3 (Average)", "4 (Good)", "5 (Excellent)"],
-                            y=rating_counts.values,
-                            marker_color=["#d73027", "#fc8d59", "#fee08b", "#91cf60", "#1a9850"],
-                        )]
-                    )
+                    # Chart 2: Rating distribution per tool (stacked bar)
+                    rating_colors = ["#d73027", "#fc8d59", "#fee08b", "#91cf60", "#1a9850"]
+                    rating_labels = ["1 (Very Poor)", "2 (Below Avg)", "3 (Average)", "4 (Good)", "5 (Excellent)"]
+                    dist_fig = go.Figure()
+                    if not df_subs.empty:
+                        pivot = df_subs.groupby(["tool", "rating"]).size().unstack(fill_value=0)
+                        for r in [1, 2, 3, 4, 5]:
+                            if r not in pivot.columns:
+                                pivot[r] = 0
+                        pivot = pivot.reindex(all_tools, fill_value=0).fillna(0)
+                        pivot = pivot[[c for c in [1, 2, 3, 4, 5] if c in pivot.columns]]
+                        tools_ordered = pivot.sum(axis=1).sort_values(ascending=True).index.tolist()
+                        for i, r in enumerate([1, 2, 3, 4, 5]):
+                            counts = pivot.reindex(tools_ordered)[r].fillna(0).astype(int).tolist()
+                            dist_fig.add_trace(go.Bar(
+                                name=rating_labels[i],
+                                x=counts,
+                                y=tools_ordered,
+                                orientation="h",
+                                marker_color=rating_colors[i],
+                                legendgroup=rating_labels[i],
+                            ))
+                    else:
+                        for i, r in enumerate([1, 2, 3, 4, 5]):
+                            dist_fig.add_trace(go.Bar(
+                                name=rating_labels[i],
+                                x=[0] * len(all_tools),
+                                y=all_tools,
+                                orientation="h",
+                                marker_color=rating_colors[i],
+                            ))
                     dist_fig.update_layout(
-                        title="Distribution of all ratings",
-                        xaxis_title="Rating",
-                        yaxis_title="Count",
-                        bargap=0.3,
+                        title="Rating distribution per tool",
+                        xaxis_title="Count",
+                        yaxis_title="",
+                        barmode="stack",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     )
-                    dist_fig = _chart_layout(dist_fig)
+                    dist_fig = _chart_layout(dist_fig, height=max(400, len(all_tools) * 18))
 
                     tool_fig = _make_empty_fig("Select a tool above to see its rating distribution")
                     reviews_df = pd.DataFrame()
                     artifacts = []
 
                     artifact_md = _artifacts_to_markdown(artifacts)
-                    return avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
+                    return test_fig, dist_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
 
                 def on_tool_select(tool_name):
                     if not tool_name:
@@ -824,7 +845,7 @@ def build_ui():
                     fn=full_refresh,
                     inputs=[tool_dropdown],
                     outputs=[
-                        avg_chart,
+                        test_chart,
                         dist_chart,
                         tool_rating_chart,
                         reviews_display,
@@ -851,7 +872,7 @@ def build_ui():
                 demo.load(
                     fn=on_load,
                     outputs=[
-                        avg_chart,
+                        test_chart,
                         dist_chart,
                         tool_rating_chart,
                         reviews_display,
