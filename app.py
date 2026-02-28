@@ -2,6 +2,24 @@
 AI Tool Jam Hackathon App - Gradio interface for exploring tools, rating, and analytics.
 """
 
+# Monkey-patch gradio_client to fix TypeError when schema is bool (older gradio_client versions)
+def _patch_gradio_client():
+    try:
+        import gradio_client.utils as gu
+        _orig_get_type = gu.get_type
+
+        def _patched_get_type(schema):
+            if isinstance(schema, bool):
+                return "boolean"
+            return _orig_get_type(schema)
+
+        gu.get_type = _patched_get_type
+    except Exception:
+        pass  # Patch may already exist or gradio_client structure changed
+
+
+_patch_gradio_client()
+
 import json
 import os
 import random
@@ -784,4 +802,4 @@ def build_ui():
 if __name__ == "__main__":
     _ensure_data_dir()
     demo = build_ui()
-    demo.launch(share=False, server_port=7863)
+    demo.launch(share=True, server_port=7863, show_api=False)
