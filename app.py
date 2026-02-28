@@ -394,6 +394,20 @@ def add_submission(user: str, tool: str, category: str, rating: int, notes: str,
     return sub_id, videos_converted, videos_saved_without_conversion
 
 
+DEFAULT_RATING = 3
+
+
+def _coerce_rating(rating, default: int = DEFAULT_RATING) -> int:
+    """Ensure rating is 1-5; use default if None, 0, or invalid."""
+    if rating is None:
+        return default
+    try:
+        r = int(float(rating))
+        return r if 1 <= r <= 5 else default
+    except (ValueError, TypeError):
+        return default
+
+
 def _format_submit_success(tool_name: str, videos_converted: int, videos_saved_without_conversion: int, has_artifacts: bool) -> str:
     """Build success message with video conversion status and Gallery refresh hint."""
     msg = f"Thanks! Your feedback for **{tool_name}** has been saved."
@@ -576,7 +590,7 @@ def build_ui():
                                     return gr.update(visible=True, value="Please save your name above first.")
                                 if not (tool_name or "").strip():
                                     return gr.update(visible=True, value="Please select a tool to rate.")
-                                _, v_conv, v_saved = add_submission(user.strip(), tool_name.strip(), "Other", int(rating), notes, files)
+                                _, v_conv, v_saved = add_submission(user.strip(), tool_name.strip(), "Other", _coerce_rating(rating), notes, files)
                                 has_artifacts = bool(files)
                                 msg = _format_submit_success(tool_name.strip(), v_conv, v_saved, has_artifacts)
                                 return gr.update(visible=True, value=msg)
@@ -622,7 +636,7 @@ def build_ui():
                                         def handler(user, rating, notes, files):
                                             if not (user or "").strip():
                                                 return gr.update(visible=True, value="Please save your name above first.")
-                                            _, v_conv, v_saved = add_submission(user.strip(), tool_name, tool_cat, int(rating), notes, files)
+                                            _, v_conv, v_saved = add_submission(user.strip(), tool_name, tool_cat, _coerce_rating(rating), notes, files)
                                             has_artifacts = bool(files)
                                             msg = _format_submit_success(tool_name, v_conv, v_saved, has_artifacts)
                                             return gr.update(visible=True, value=msg)
@@ -689,6 +703,10 @@ def build_ui():
                         empty_fig = _make_empty_fig("No data yet — add feedback in the Tool Explorer tab")
                         return empty_fig, empty_fig, _make_empty_fig("Select a tool above"), pd.DataFrame(), "*No artifacts yet*", get_tool_choices()
                     df_subs = pd.DataFrame(subs)
+                    # Normalize rating column (handle Rating/rating, str/int/float)
+                    rating_col = "rating" if "rating" in df_subs.columns else "Rating"
+                    df_subs["rating"] = pd.to_numeric(df_subs[rating_col], errors="coerce").fillna(0).astype(int)
+                    df_subs = df_subs[df_subs["rating"].between(1, 5)]
                     agg = df_subs.groupby(["tool", "category"]).agg(
                         Reviews=("rating", "count"),
                         Avg_Rating=("rating", "mean"),
@@ -766,6 +784,9 @@ def build_ui():
                             [],
                         )
                     df = pd.DataFrame(subs)
+                    rating_col = "rating" if "rating" in df.columns else "Rating"
+                    df["rating"] = pd.to_numeric(df[rating_col], errors="coerce").fillna(0).astype(int)
+                    df = df[df["rating"].between(1, 5)]
                     rating_counts = df["rating"].value_counts().reindex([1, 2, 3, 4, 5], fill_value=0)
                     fig = go.Figure(
                         data=[go.Bar(
@@ -792,12 +813,16 @@ def build_ui():
                                 artifacts.append((p, f"{s['user']} - {s['timestamp'][:19]}"))
                     return fig, reviews_df, artifacts
 
-                def full_refresh():
+                def full_refresh(selected_tool=None):
                     avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, choices = refresh_analytics()
+                    if selected_tool:
+                        tool_fig, reviews_df, artifacts = on_tool_select(selected_tool)
+                        artifact_md = _artifacts_to_markdown(artifacts)
                     return avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, gr.update(choices=choices)
 
                 refresh_btn.click(
                     fn=full_refresh,
+                    inputs=[tool_dropdown],
                     outputs=[
                         avg_chart,
                         dist_chart,
