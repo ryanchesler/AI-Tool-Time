@@ -10,6 +10,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import gradio as gr
 import pandas as pd
@@ -28,67 +29,91 @@ TOOLS_BY_CATEGORY = {
         ("ChatGPT (text + image tools)", "https://chatgpt.com/", "OpenAI's conversational AI with image understanding and generation."),
         ("Gemini", "https://gemini.google.com/", "Google's multimodal AI assistant for chat, code, and analysis."),
         ("Claude", "https://claude.ai/", "Anthropic's AI assistant for writing, analysis, and coding."),
-        ("Perplexity", "https://www.perplexity.ai/", "AI-powered search engine that cites sources."),
-        ("NotebookLM", "https://notebooklm.google.com/", "Google's AI for summarizing and querying your documents."),
+        ("Perplexity", "https://www.perplexity.ai/", "AI-powered search and answer engine with citations."),
+        ("NotebookLM", "https://notebooklm.google.com/", "Google's AI for summarizing, querying, and discussing your documents."),
     ],
+
+    "Autonomous Personal Agents & Work": [
+        ("Manus", "https://manus.im/", "General-purpose AI agent that can complete multi-step tasks more autonomously."),
+        ("Genspark", "https://www.genspark.ai/", "AI agent and search/workflow tool for researching and carrying out tasks."),
+        ("OpenClaw", "https://openclaw.ai/", "Autonomous personal AI assistant focused on taking actions across tools like inbox, calendar, and chat."),
+    ],
+
+    "Ambient AI & Personal Briefing": [
+        ("Huxe", "https://www.huxe.com/", "AI-powered personalized audio briefings built from your inbox, schedule, and chosen information sources."),
+    ],
+
+    "World Models & Interactive Simulations": [
+        ("Genie 3 / Project Genie", "https://deepmind.google/models/genie/", "Interactive AI-generated worlds and real-time environments from Google DeepMind."),
+        ("Marble", "https://marble.worldlabs.ai/", "Multimodal world model from World Labs for creating, editing, and sharing high-fidelity persistent 3D worlds."),
+    ],
+
     "Image Generation & Design": [
         ("ChatGPT Images", "https://openai.com/index/new-chatgpt-images-is-here/", "Generate and edit images directly in ChatGPT."),
-        ("Midjourney", "https://www.midjourney.com/", "Discord-based AI image generation known for artistic quality."),
-        ("Ideogram", "https://ideogram.ai/", "AI image generator with strong text-in-image capabilities."),
+        ("Ideogram", "https://ideogram.ai/", "AI image generator with particularly strong text-in-image results."),
         ("Krea", "https://www.krea.ai/", "Real-time AI image generation and enhancement."),
-        ("Canva Magic Studio", "https://www.canva.com/magic/", "AI design tools built into Canva for graphics and presentations."),
-        ("Adobe Firefly", "https://firefly.adobe.com/", "Adobe's generative AI for images, vectors, and design."),
-        ("FLUX (Black Forest Labs)", "https://bfl.ai/", "High-quality open-source image generation models."),
-        ("Stability AI (Stable Diffusion)", "https://stability.ai/", "Open-source image generation and editing tools."),
+        ("Canva Magic Studio", "https://www.canva.com/magic/", "AI design tools inside Canva for graphics and creative content."),
+        ("Adobe Firefly", "https://firefly.adobe.com/", "Adobe's generative AI for images, vectors, and design workflows."),
+        ("FLUX (Black Forest Labs)", "https://bfl.ai/", "Popular high-quality image generation model family from Black Forest Labs."),
         ("Photoroom", "https://www.photoroom.com/", "AI background removal and product photo editing."),
-        ("Pixelcut", "https://www.pixelcut.ai/home", "AI-powered product photography and background removal."),
     ],
+
     "Video Generation & Editing": [
         ("OpenAI Sora", "https://openai.com/sora/", "Text-to-video generation from OpenAI."),
         ("Veo (Google DeepMind)", "https://deepmind.google/technologies/veo/", "Google's high-quality video generation model."),
-        ("Runway", "https://runwayml.com/", "AI video editing, generation, and effects."),
-        ("Luma Dream Machine", "https://lumalabs.ai/dream-machine", "Text and image to video generation."),
+        ("Runway", "https://runwayml.com/", "AI video editing, generation, and visual effects."),
+        ("Luma Dream Machine", "https://lumalabs.ai/dream-machine", "Text-and-image-to-video generation from Luma."),
         ("Pika", "https://pika.art/", "AI video creation and editing platform."),
         ("HeyGen (avatars)", "https://www.heygen.com/", "AI avatar and talking-head video generation."),
-        ("Descript", "https://www.descript.com/", "AI-powered video and podcast editing with transcription."),
-        ("VEED", "https://www.veed.io/", "Online video editor with AI subtitles and effects."),
-        ("CapCut", "https://www.capcut.com/", "Free video editor with AI tools and templates."),
     ],
+
     "Music, Voice & Audio": [
         ("Suno", "https://suno.com/", "AI music generation from text prompts."),
         ("Udio", "https://www.udio.com/", "AI music creation and remixing."),
-        ("ElevenLabs", "https://elevenlabs.io/", "AI voice synthesis and cloning."),
-        ("Adobe Podcast (Enhance Speech)", "https://podcast.adobe.com/", "AI speech enhancement for podcasts."),
+        ("ElevenLabs", "https://elevenlabs.io/", "AI voice synthesis and voice cloning."),
+        ("Adobe Podcast (Enhance Speech)", "https://podcast.adobe.com/", "AI speech enhancement for podcasts and recordings."),
+        ("Hume", "https://www.hume.ai/", "Voice-first AI focused on natural conversational interaction and expressive speech."),
+        ("Whispr Flow", "https://wisprflow.ai/", "Voice dictation and speech-to-text tool for faster computer interaction."),
     ],
+
     "Coding & Developer Tools": [
         ("Cursor", "https://www.cursor.com/", "AI-powered code editor built on VS Code."),
         ("Windsurf", "https://windsurf.com/", "AI coding assistant and IDE."),
         ("Claude Code", "https://claude.com/product/claude-code", "Claude for coding with terminal and IDE integration."),
-        ("GitHub Copilot", "https://github.com/features/copilot", "AI pair programmer in your IDE."),
-        ("Devin", "https://devin.ai/", "Autonomous AI software engineer."),
-        ("Replit Agent", "https://replit.com/products/agent", "AI agent for building and deploying in Replit."),
+        ("GitHub Copilot", "https://github.com/features/copilot", "AI pair programmer integrated into developer workflows."),
+        ("Replit Agent", "https://replit.com/products/agent", "AI agent for building and deploying inside Replit."),
         ("Lovable", "https://lovable.dev/", "AI-powered app builder from natural language."),
-        ("Bolt", "https://bolt.new/", "AI-assisted full-stack development."),
-        ("v0 (Vercel)", "https://v0.app/", "AI-generated UI components and interfaces."),
+        ("Bolt", "https://bolt.new/", "AI-assisted full-stack app development in the browser."),
+        ("v0 (Vercel)", "https://v0.app/", "AI-generated UI components and app interfaces."),
     ],
+
     "Research & Reading": [
-        ("Elicit", "https://elicit.com/", "AI research assistant for literature review and citations."),
-        ("Consensus", "https://consensus.app/", "AI search across scientific papers."),
-        ("SciSpace", "https://scispace.com/", "AI for reading and understanding research papers."),
+        ("Elicit", "https://elicit.com/", "AI research assistant for literature review and evidence gathering."),
+        ("Consensus", "https://consensus.app/", "AI search engine focused on scientific papers and research findings."),
     ],
+
     "Work Suites & Collaboration": [
-        ("Google Workspace with Gemini", "https://workspace.google.com/solutions/ai/", "Gemini AI integrated across Docs, Sheets, Slides, and more."),
-        ("AI for Presentations with Google Slides", "https://workspace.google.com/resources/presentation-ai/", "AI-assisted slide creation and design."),
-        ("Gemini in the side panel", "https://workspaceupdates.googleblog.com/2024/06/gemini-in-side-panel-of-google-docs-sheets-slides-drive.html", "Gemini sidebar in Google Docs, Sheets, Slides, and Drive."),
+        ("Google Workspace with Gemini", "https://workspace.google.com/solutions/ai/", "Gemini AI integrated across Docs, Sheets, Slides, Gmail, and more."),
         ("Microsoft 365 Copilot", "https://www.microsoft.com/en-us/microsoft-365-copilot", "AI assistant across Word, Excel, PowerPoint, and Outlook."),
-        ("Slack AI", "https://slack.com/features/ai", "AI search and summarization in Slack."),
-        ("Zoom AI Companion", "https://www.zoom.com/en/products/ai-assistant/", "AI meeting assistant for Zoom."),
-        ("Notion AI", "https://www.notion.so/product/ai", "AI writing and summarization in Notion."),
-        ("Figma AI", "https://www.figma.com/ai/", "AI design tools in Figma."),
+        ("Notion AI", "https://www.notion.so/product/ai", "AI writing, summarization, and workspace assistance in Notion."),
+        ("Figma AI", "https://www.figma.com/ai/", "AI design and prototyping tools in Figma."),
+        ("Gamma", "https://gamma.app/", "AI-native tool for creating presentations, docs, and web-style decks."),
     ],
+
     "Meeting Notes & Transcription": [
         ("Otter", "https://otter.ai/", "AI meeting assistant for transcription and summaries."),
-        ("Fireflies", "https://fireflies.ai/", "AI meeting transcription and search."),
+    ],
+
+    "Automation, Agents & Workflows": [
+        ("n8n", "https://n8n.io/", "Workflow automation platform with strong AI and agent integrations."),
+        ("Gumloop", "https://www.gumloop.com/", "No-code AI workflow builder for automations, agents, and business tasks."),
+        ("Granola", "https://www.granola.ai/", "AI meeting notepad that captures, organizes, and makes meetings searchable."),
+    ],
+    "Agentic Native Browsers": [
+    ("Perplexity Comet", "https://www.perplexity.ai/comet/", "AI-native browser from Perplexity that combines contextual browsing assistance with task automation."),
+    ("Dia", "https://www.diabrowser.com/", "AI browser from The Browser Company focused on chatting with tabs, writing help, and contextual browsing."),
+    ("Opera Neon", "https://operaneon.com/", "Agentic browser from Opera that can interpret intent and take actions on the live web."),
+    ("ChatGPT Atlas", "https://chatgpt.com/atlas/", "OpenAI's browser with ChatGPT built in for page-aware assistance, summaries, and task help."),
     ],
 }
 
@@ -101,7 +126,7 @@ DUMMY_USERS = ["Alex", "Jordan", "Sam", "Taylor", "Casey", "Morgan", "Riley", "Q
 def generate_dummy_data(num_submissions: int = 80) -> list:
     """Generate dummy submissions for testing the analytics plots."""
     all_tools = []
-    for category, tools in TOOLS_BY_CATEGORY.items():
+    for category, tools in get_all_tools_by_category().items():
         for name, url, _ in tools:
             all_tools.append((name, category))
     submissions = []
@@ -133,6 +158,44 @@ def _artifacts_to_markdown(artifacts):
     return "\n".join(lines)
 
 
+# Extensions for embeddable media in Gallery
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+_VIDEO_EXTS = {".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+_AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac"}
+
+
+def _get_artifacts_by_tool():
+    """Return {tool_name: [(path, caption), ...]} for all tools with artifacts."""
+    data = load_data()
+    subs = data.get("submissions", [])
+    if not subs:
+        subs = generate_dummy_data()
+    by_tool = {}
+    for s in subs:
+        for p in s.get("artifacts", []):
+            if os.path.exists(p):
+                caption = f"{s['user']} — {s['timestamp'][:19]}"
+                tool = s["tool"]
+                by_tool.setdefault(tool, []).append((p, caption))
+    return by_tool
+
+
+def _split_artifacts(artifacts):
+    """Split (path, caption) list into gallery_items (images+videos), audio_items, and other_files."""
+    gallery_items = []
+    audio_items = []
+    other_files = []
+    for path, caption in artifacts:
+        ext = (Path(path).suffix or "").lower()
+        if ext in _IMAGE_EXTS or ext in _VIDEO_EXTS:
+            gallery_items.append((path, caption))
+        elif ext in _AUDIO_EXTS:
+            audio_items.append((path, caption))
+        else:
+            other_files.append((path, caption))
+    return gallery_items, audio_items, other_files
+
+
 # --- Data Layer ---
 
 def _ensure_data_dir():
@@ -143,14 +206,48 @@ def load_data():
     with _data_lock:
         if DATA_FILE.exists():
             with open(DATA_FILE, "r") as f:
-                return json.load(f)
-    return {"submissions": []}
+                data = json.load(f)
+                if "custom_tools" not in data:
+                    data["custom_tools"] = []
+                return data
+    return {"submissions": [], "custom_tools": []}
 
 
 def save_data(data):
     with _data_lock:
         with open(DATA_FILE, "w") as f:
             json.dump(data, f, indent=2)
+
+
+def load_custom_tools():
+    """Return list of (name, url, blurb) for user-added tools."""
+    data = load_data()
+    return [
+        (t["name"], t.get("url", ""), t.get("blurb", ""))
+        for t in data.get("custom_tools", [])
+    ]
+
+
+def add_custom_tool(name: str, url: str, blurb: str) -> Optional[str]:
+    """Add a custom tool to the Other category. Returns error message or None on success."""
+    name = (name or "").strip()
+    if not name:
+        return "Please enter a tool name."
+    data = load_data()
+    custom = data.get("custom_tools", [])
+    if any(t["name"].strip().lower() == name.lower() for t in custom):
+        return f"'{name}' already exists."
+    custom.append({"name": name, "url": (url or "").strip(), "blurb": (blurb or "").strip()})
+    data["custom_tools"] = custom
+    save_data(data)
+    return None
+
+
+def get_all_tools_by_category():
+    """Return {category: [(name, url, blurb), ...]} including custom tools in Other."""
+    result = dict(TOOLS_BY_CATEGORY)
+    result["Other"] = load_custom_tools()
+    return result
 
 
 def load_ip_to_name():
@@ -251,7 +348,7 @@ def build_ui():
             with gr.Tab("Tool Explorer"):
                 user_name_state = gr.State(value="")
 
-                with gr.Accordion("Enter your name (required once per session)", open=True, elem_classes="name-section") as name_accordion:
+                with gr.Accordion("Enter your name (required once per session)", open=False, elem_classes="name-section") as name_accordion:
                     name_input = gr.Textbox(
                         label="Your name or alias",
                         placeholder="Enter your name for feedback",
@@ -263,13 +360,17 @@ def build_ui():
                     if (name or "").strip():
                         if request and getattr(request, "client", None):
                             save_ip_name(request.client.host, name.strip())
-                        return name.strip(), f"**Welcome, {name.strip()}!** Your feedback will be attributed to you. Expand above to change your name."
-                    return _state, "Please enter a name."
+                        return (
+                            name.strip(),
+                            f"**Welcome, {name.strip()}!** Your feedback will be attributed to you. Expand above to change your name.",
+                            gr.update(open=False),
+                        )
+                    return _state, "Please enter a name.", gr.update()
 
                 set_name_btn.click(
                     fn=save_name,
                     inputs=[name_input, user_name_state],
-                    outputs=[user_name_state, name_status],
+                    outputs=[user_name_state, name_status, name_accordion],
                 )
 
                 def get_stored_name(request: gr.Request):
@@ -279,74 +380,135 @@ def build_ui():
                         mapping = load_ip_to_name()
                         name = mapping.get(ip, "")
                         if name:
-                            return name, name, f"**Welcome back, {name}!** (Name remembered from this device.)"
-                    return "", "", "*Your name will be saved and remembered by IP for future visits (including after refresh).*"
-
-                # Build per-tool accordions with link, blurb, rating, notes, upload
-                for i, (category, tools) in enumerate(TOOLS_BY_CATEGORY.items()):
-                    if i > 0:
-                        gr.HTML('<div style="height:2px; background: linear-gradient(90deg, transparent, #4a90d9, transparent); margin: 1.5rem 0;"></div>')
-                    with gr.Accordion(category, open=True, elem_classes="category-section"):
-                        for name, url, blurb in tools:
-                            with gr.Accordion(f"{name}", open=False, elem_classes="tool-item"):
-                                gr.Markdown(f"**What it is:** {blurb}")
-                                gr.Markdown(f"[**Try it here →**]({url})")
-                                with gr.Row():
-                                    tool_rating = gr.Slider(
-                                        minimum=1,
-                                        maximum=5,
-                                        step=1,
-                                        value=3,
-                                        label="Rating (1=Very Poor, 5=Excellent)",
-                                    )
-                                tool_notes = gr.Textbox(
-                                    label="Notes",
-                                    placeholder="What did you try? What surprised you? Any gotchas?",
-                                    lines=3,
-                                )
-                                tool_upload = gr.File(
-                                    label="Upload artifacts (screenshots, creations)",
-                                    file_count="multiple",
-                                )
-                                tool_submit = gr.Button("Submit feedback")
-                                tool_status = gr.Markdown()
-
-                                def make_submit_handler(tool_name, tool_cat):
-                                    def handler(user, rating, notes, files):
-                                        if not (user or "").strip():
-                                            return gr.update(visible=True, value="Please save your name above first.")
-                                        add_submission(user.strip(), tool_name, tool_cat, int(rating), notes, files)
-                                        return gr.update(visible=True, value=f"Thanks! Your feedback for **{tool_name}** has been saved.")
-
-                                    return handler
-
-                                tool_submit.click(
-                                    fn=make_submit_handler(name, category),
-                                    inputs=[user_name_state, tool_rating, tool_notes, tool_upload],
-                                    outputs=[tool_status],
-                                )
+                            return (
+                                name,
+                                name,
+                                f"**Welcome back, {name}!** (Name remembered from this device.)",
+                                gr.update(open=False),
+                            )
+                    return (
+                        "",
+                        "",
+                        "*Your name will be saved and remembered by IP for future visits (including after refresh).*",
+                        gr.update(open=True),
+                    )
 
                 demo.load(
                     fn=get_stored_name,
-                    outputs=[user_name_state, name_input, name_status],
+                    outputs=[user_name_state, name_input, name_status, name_accordion],
                 )
+
+                # Build per-tool accordions with link, blurb, rating, notes, upload
+                for i, (category, tools) in enumerate(get_all_tools_by_category().items()):
+                    if i > 0:
+                        gr.HTML('<div style="height:2px; background: linear-gradient(90deg, transparent, #4a90d9, transparent); margin: 1.5rem 0;"></div>')
+                    with gr.Accordion(category, open=True, elem_classes="category-section"):
+                        if category == "Other":
+                            # Add-your-own-tool form
+                            gr.Markdown("**Add a tool** that's not in the list above:")
+                            with gr.Row():
+                                other_name = gr.Textbox(label="Tool name", placeholder="e.g. My Favorite AI")
+                                other_url = gr.Textbox(label="URL (optional)", placeholder="https://...")
+                            other_blurb = gr.Textbox(label="Description (optional)", placeholder="What does it do?")
+                            add_tool_btn = gr.Button("Add tool")
+                            add_tool_status = gr.Markdown()
+
+                            gr.Markdown("**Rate a custom tool:**")
+                            other_tool_dropdown = gr.Dropdown(
+                                label="Select custom tool",
+                                choices=[t[0] for t in load_custom_tools()],
+                                value=None,
+                            )
+
+                            def on_add_tool(name, url, blurb):
+                                err = add_custom_tool(name, url, blurb)
+                                if err:
+                                    return gr.update(value=err), gr.update(choices=[t[0] for t in load_custom_tools()])
+                                return gr.update(value=f"**{name.strip()}** added! You can rate it below."), gr.update(choices=[t[0] for t in load_custom_tools()])
+
+                            add_tool_btn.click(
+                                fn=on_add_tool,
+                                inputs=[other_name, other_url, other_blurb],
+                                outputs=[add_tool_status, other_tool_dropdown],
+                            )
+                            with gr.Row():
+                                other_rating = gr.Slider(minimum=1, maximum=5, step=1, value=3, label="Rating (1=Very Poor, 5=Excellent)")
+                            other_notes = gr.Textbox(label="Notes", placeholder="What did you try?", lines=3)
+                            other_upload = gr.File(label="Upload artifacts", file_count="multiple")
+                            other_submit = gr.Button("Submit feedback")
+                            other_status = gr.Markdown()
+
+                            def on_other_submit(user, tool_name, rating, notes, files):
+                                if not (user or "").strip():
+                                    return gr.update(visible=True, value="Please save your name above first.")
+                                if not (tool_name or "").strip():
+                                    return gr.update(visible=True, value="Please select a tool to rate.")
+                                add_submission(user.strip(), tool_name.strip(), "Other", int(rating), notes, files)
+                                return gr.update(visible=True, value=f"Thanks! Your feedback for **{tool_name}** has been saved.")
+
+                            other_submit.click(
+                                fn=on_other_submit,
+                                inputs=[user_name_state, other_tool_dropdown, other_rating, other_notes, other_upload],
+                                outputs=[other_status],
+                            )
+                        else:
+                            for name, url, blurb in tools:
+                                with gr.Accordion(f"{name}", open=False, elem_classes="tool-item"):
+                                    gr.Markdown(f"**What it is:** {blurb}")
+                                    if url:
+                                        gr.HTML(
+                                            f'<a href="{url}" target="_blank" rel="noopener" '
+                                            'style="display:inline-block;padding:10px 20px;background:#4a90d9;color:white!important;'
+                                            'text-decoration:none;border-radius:6px;font-weight:600;'
+                                            'box-shadow:0 2px 4px rgba(74,144,217,0.3);">'
+                                            "Try it here →</a>"
+                                        )
+                                    with gr.Row():
+                                        tool_rating = gr.Slider(
+                                            minimum=1,
+                                            maximum=5,
+                                            step=1,
+                                            value=3,
+                                            label="Rating (1=Very Poor, 5=Excellent)",
+                                        )
+                                    tool_notes = gr.Textbox(
+                                        label="Notes",
+                                        placeholder="What did you try? What surprised you? Any gotchas?",
+                                        lines=3,
+                                    )
+                                    tool_upload = gr.File(
+                                        label="Upload artifacts (screenshots, creations)",
+                                        file_count="multiple",
+                                    )
+                                    tool_submit = gr.Button("Submit feedback")
+                                    tool_status = gr.Markdown()
+
+                                    def make_submit_handler(tool_name, tool_cat):
+                                        def handler(user, rating, notes, files):
+                                            if not (user or "").strip():
+                                                return gr.update(visible=True, value="Please save your name above first.")
+                                            add_submission(user.strip(), tool_name, tool_cat, int(rating), notes, files)
+                                            return gr.update(visible=True, value=f"Thanks! Your feedback for **{tool_name}** has been saved.")
+
+                                        return handler
+
+                                    tool_submit.click(
+                                        fn=make_submit_handler(name, category),
+                                        inputs=[user_name_state, tool_rating, tool_notes, tool_upload],
+                                        outputs=[tool_status],
+                                    )
 
             # --- Tab 2: Analytics Dashboard ---
             with gr.Tab("Analytics"):
                 refresh_btn = gr.Button("Refresh data")
 
                 with gr.Row():
-                    summary_table = gr.Dataframe(
-                        label="Summary: Tools by reviews and average rating",
-                        interactive=False,
-                    )
-                with gr.Row():
                     avg_chart = gr.Plot(label="Average rating per tool")
                     dist_chart = gr.Plot(label="Distribution of all ratings (1-5)")
 
                 def get_tool_choices():
                     tools = []
-                    for tools_list in TOOLS_BY_CATEGORY.values():
+                    for tools_list in get_all_tools_by_category().values():
                         for item in tools_list:
                             name = item[0]
                             tools.append(name)
@@ -397,14 +559,25 @@ def build_ui():
                     agg["Avg Rating"] = agg["Avg Rating"].round(2)
                     df = agg.sort_values("Avg Rating", ascending=True).reset_index(drop=True)
 
-                    avg_fig = px.bar(
-                        df,
-                        y="Tool",
-                        x="Avg Rating",
-                        orientation="h",
-                        color="Avg Rating",
-                        color_continuous_scale="RdYlGn",
-                        range_color=[1, 5],
+                    hovertexts = [
+                        f"<b>{row['Tool']}</b><br>Avg Rating: {row['Avg Rating']:.2f}<br>Reviews: {row['Reviews']}"
+                        for _, row in df.iterrows()
+                    ]
+                    avg_fig = go.Figure(
+                        data=[go.Bar(
+                            x=df["Avg Rating"],
+                            y=df["Tool"],
+                            orientation="h",
+                            marker=dict(
+                                color=df["Avg Rating"].tolist(),
+                                colorscale="RdYlGn",
+                                cmin=1,
+                                cmax=5,
+                                showscale=False,
+                            ),
+                            hovertext=hovertexts,
+                            hoverinfo="text",
+                        )]
                     )
                     avg_fig.update_layout(
                         title="Average rating per tool",
@@ -436,7 +609,7 @@ def build_ui():
                     artifacts = []
 
                     artifact_md = _artifacts_to_markdown(artifacts)
-                    return df, avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
+                    return avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, get_tool_choices()
 
                 def on_tool_select(tool_name):
                     if not tool_name:
@@ -484,13 +657,12 @@ def build_ui():
                     return fig, reviews_df, artifacts
 
                 def full_refresh():
-                    df, avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, choices = refresh_analytics()
-                    return df, avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, gr.update(choices=choices)
+                    avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, choices = refresh_analytics()
+                    return avg_fig, dist_fig, tool_fig, reviews_df, artifact_md, gr.update(choices=choices)
 
                 refresh_btn.click(
                     fn=full_refresh,
                     outputs=[
-                        summary_table,
                         avg_chart,
                         dist_chart,
                         tool_rating_chart,
@@ -513,12 +685,11 @@ def build_ui():
 
                 def on_load():
                     result = full_refresh()
-                    return result[0], result[1], result[2], result[3], result[4], result[5], result[6]
+                    return result[0], result[1], result[2], result[3], result[4], result[5]
 
                 demo.load(
                     fn=on_load,
                     outputs=[
-                        summary_table,
                         avg_chart,
                         dist_chart,
                         tool_rating_chart,
@@ -527,6 +698,85 @@ def build_ui():
                         tool_dropdown,
                     ],
                 )
+
+            # --- Tab 3: Gallery ---
+            with gr.Tab("Gallery"):
+                gallery_refresh_btn = gr.Button("Refresh gallery")
+                gallery_tool_dropdown = gr.Dropdown(
+                    label="Select tool",
+                    choices=get_tool_choices(),
+                    value=None,
+                )
+                gallery_display = gr.Gallery(
+                    label="Images & videos",
+                    columns=3,
+                    rows=2,
+                    object_fit="contain",
+                    height="auto",
+                )
+                gallery_others_files = gr.File(label="Other files (download)", file_count="multiple")
+
+                with gr.Accordion("Audio", open=True):
+                    gallery_audio_dropdown = gr.Dropdown(
+                        label="Select audio to play",
+                        choices=[],
+                        value=None,
+                    )
+                    gallery_audio_player = gr.Audio(label="Play", type="filepath")
+
+                def get_gallery_content(tool_name):
+                    by_tool = _get_artifacts_by_tool()
+                    if not tool_name:
+                        return [], gr.update(value=None), gr.update(choices=[], value=None), None
+                    artifacts = by_tool.get(tool_name, [])
+                    if not artifacts:
+                        return [], gr.update(value=None), gr.update(choices=[], value=None), None
+                    gallery_items, audio_items, other_files = _split_artifacts(artifacts)
+                    other_paths = [p for p, _ in other_files] if other_files else None
+                    audio_choices = [(f"{os.path.basename(p)} — {cap}", p) for p, cap in audio_items]
+                    audio_value = audio_items[0][0] if audio_items else None
+                    audio_update = gr.update(choices=audio_choices, value=audio_value) if audio_items else gr.update(choices=[], value=None)
+                    return gallery_items, gr.update(value=other_paths), audio_update, audio_value
+
+                def on_gallery_tool_select(tool_name):
+                    result = get_gallery_content(tool_name)
+                    return result[0], result[1], result[2], result[3]
+
+                def on_audio_dropdown_change(selected_path):
+                    return selected_path
+
+                def gallery_refresh():
+                    return gr.update(choices=get_tool_choices()), [], gr.update(value=None), gr.update(choices=[], value=None), None
+
+                gallery_tool_dropdown.change(
+                    fn=on_gallery_tool_select,
+                    inputs=[gallery_tool_dropdown],
+                    outputs=[gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                )
+                gallery_audio_dropdown.change(
+                    fn=on_audio_dropdown_change,
+                    inputs=[gallery_audio_dropdown],
+                    outputs=[gallery_audio_player],
+                )
+                gallery_refresh_btn.click(
+                    fn=gallery_refresh,
+                    outputs=[gallery_tool_dropdown, gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                )
+
+                # Accordion browse by category
+                gr.Markdown("### Browse by category")
+                for cat_idx, (category, tools) in enumerate(get_all_tools_by_category().items()):
+                    if cat_idx > 0:
+                        gr.HTML('<div style="height:2px; background: linear-gradient(90deg, transparent, #4a90d9, transparent); margin: 1rem 0;"></div>')
+                    with gr.Accordion(category, open=False, elem_classes="category-section"):
+                        with gr.Row():
+                            for name, _url, _blurb in tools:
+                                btn = gr.Button(name, size="sm")
+                                btn.click(
+                                    fn=lambda n=name: (n, *get_gallery_content(n)),
+                                    inputs=[],
+                                    outputs=[gallery_tool_dropdown, gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                                )
 
     return demo
 
