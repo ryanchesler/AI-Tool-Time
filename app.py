@@ -24,6 +24,7 @@ import json
 import os
 import random
 import shutil
+import subprocess
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -178,7 +179,10 @@ def _artifacts_to_markdown(artifacts):
 
 # Extensions for embeddable media in Gallery
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-_VIDEO_EXTS = {".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+_VIDEO_EXTS = {
+    ".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v",
+    ".3gp", ".3gpp", ".ogv", ".mpeg", ".mpg", ".wmv",
+}  # gr.Video handles conversion for browser playback
 _AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac"}
 
 
@@ -199,19 +203,22 @@ def _get_artifacts_by_tool():
 
 
 def _split_artifacts(artifacts):
-    """Split (path, caption) list into gallery_items (images+videos), audio_items, and other_files."""
-    gallery_items = []
+    """Split (path, caption) list into image_items, video_items, audio_items, and other_files."""
+    image_items = []
+    video_items = []
     audio_items = []
     other_files = []
     for path, caption in artifacts:
         ext = (Path(path).suffix or "").lower()
-        if ext in _IMAGE_EXTS or ext in _VIDEO_EXTS:
-            gallery_items.append((path, caption))
+        if ext in _IMAGE_EXTS:
+            image_items.append((path, caption))
+        elif ext in _VIDEO_EXTS:
+            video_items.append((path, caption))
         elif ext in _AUDIO_EXTS:
             audio_items.append((path, caption))
         else:
             other_files.append((path, caption))
-    return gallery_items, audio_items, other_files
+    return image_items, video_items, audio_items, other_files
 
 
 # --- Data Layer ---
@@ -286,6 +293,25 @@ def save_ip_name(ip: str, name: str):
             json.dump(mapping, f, indent=2)
 
 
+def _convert_video_to_h264(src: Path, dest: Path) -> bool:
+    """Convert video to H.264 MP4 for browser playback. Returns True if successful."""
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(src),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-movflags", "+faststart",
+                str(dest),
+            ],
+            capture_output=True,
+            timeout=300,
+            check=True,
+        )
+        return dest.exists()
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
 def add_submission(user: str, tool: str, category: str, rating: int, notes: str, uploaded_files):
     _ensure_data_dir()
     sub_id = str(uuid.uuid4())
@@ -297,10 +323,18 @@ def add_submission(user: str, tool: str, category: str, rating: int, notes: str,
         src = Path(f)
         if not src.exists():
             continue
-        ext = src.suffix or ""
+        ext = (src.suffix or "").lower()
         dest = UPLOADS_DIR / f"{sub_id}_{src.stem}{ext}"
-        shutil.copy2(src, dest)
-        artifact_paths.append(str(dest))
+        if ext in _VIDEO_EXTS:
+            dest_h264 = UPLOADS_DIR / f"{sub_id}_{src.stem}_h264.mp4"
+            if _convert_video_to_h264(src, dest_h264):
+                artifact_paths.append(str(dest_h264))
+            else:
+                shutil.copy2(src, dest)
+                artifact_paths.append(str(dest))
+        else:
+            shutil.copy2(src, dest)
+            artifact_paths.append(str(dest))
     data = load_data()
     data["submissions"].append({
         "id": sub_id,
@@ -726,13 +760,23 @@ def build_ui():
                     value=None,
                 )
                 gallery_display = gr.Gallery(
-                    label="Images & videos",
+                    label="Images",
                     columns=3,
                     rows=2,
                     object_fit="contain",
                     height="auto",
                 )
                 gallery_others_files = gr.File(label="Other files (download)", file_count="multiple")
+
+                with gr.Accordion("Videos", open=True):
+                    gallery_video_dropdown = gr.Dropdown(
+                        label="Select video to play",
+                        choices=[],
+                        value=None,
+                    )
+                    with gr.Row():
+                        gallery_video_player = gr.Video(label="Play", format="mp4")
+                        gallery_video_download = gr.File(label="Download if playback fails", interactive=False)
 
                 with gr.Accordion("Audio", open=True):
                     gallery_audio_dropdown = gr.Dropdown(
@@ -745,31 +789,61 @@ def build_ui():
                 def get_gallery_content(tool_name):
                     by_tool = _get_artifacts_by_tool()
                     if not tool_name:
-                        return [], gr.update(value=None), gr.update(choices=[], value=None), None
+                        return [], gr.update(value=None), gr.update(choices=[], value=None), None, gr.update(value=None), gr.update(choices=[], value=None), None
                     artifacts = by_tool.get(tool_name, [])
                     if not artifacts:
-                        return [], gr.update(value=None), gr.update(choices=[], value=None), None
-                    gallery_items, audio_items, other_files = _split_artifacts(artifacts)
+                        return [], gr.update(value=None), gr.update(choices=[], value=None), None, gr.update(value=None), gr.update(choices=[], value=None), None
+                    image_items, video_items, audio_items, other_files = _split_artifacts(artifacts)
                     other_paths = [p for p, _ in other_files] if other_files else None
+                    video_choices = [(f"{os.path.basename(p)} — {cap}", p) for p, cap in video_items]
+                    video_value = video_items[0][0] if video_items else None
+                    video_update = gr.update(choices=video_choices, value=video_value) if video_items else gr.update(choices=[], value=None)
+                    video_download_update = gr.update(value=video_value) if video_value else gr.update(value=None)
                     audio_choices = [(f"{os.path.basename(p)} — {cap}", p) for p, cap in audio_items]
                     audio_value = audio_items[0][0] if audio_items else None
                     audio_update = gr.update(choices=audio_choices, value=audio_value) if audio_items else gr.update(choices=[], value=None)
-                    return gallery_items, gr.update(value=other_paths), audio_update, audio_value
+                    return image_items, gr.update(value=other_paths), video_update, video_value, video_download_update, audio_update, audio_value
 
                 def on_gallery_tool_select(tool_name):
                     result = get_gallery_content(tool_name)
-                    return result[0], result[1], result[2], result[3]
+                    return result[0], result[1], result[2], result[3], result[4], result[5], result[6]
+
+                def on_video_dropdown_change(selected_path):
+                    download_update = gr.update(value=selected_path) if selected_path else gr.update(value=None)
+                    return selected_path, download_update
 
                 def on_audio_dropdown_change(selected_path):
                     return selected_path
 
                 def gallery_refresh():
-                    return gr.update(choices=get_tool_choices()), [], gr.update(value=None), gr.update(choices=[], value=None), None
+                    return (
+                        gr.update(choices=get_tool_choices()),
+                        [],
+                        gr.update(value=None),
+                        gr.update(choices=[], value=None),
+                        gr.update(value=None),
+                        gr.update(value=None),
+                        gr.update(choices=[], value=None),
+                        gr.update(value=None),
+                    )
 
                 gallery_tool_dropdown.change(
                     fn=on_gallery_tool_select,
                     inputs=[gallery_tool_dropdown],
-                    outputs=[gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                    outputs=[
+                        gallery_display,
+                        gallery_others_files,
+                        gallery_video_dropdown,
+                        gallery_video_player,
+                        gallery_video_download,
+                        gallery_audio_dropdown,
+                        gallery_audio_player,
+                    ],
+                )
+                gallery_video_dropdown.change(
+                    fn=on_video_dropdown_change,
+                    inputs=[gallery_video_dropdown],
+                    outputs=[gallery_video_player, gallery_video_download],
                 )
                 gallery_audio_dropdown.change(
                     fn=on_audio_dropdown_change,
@@ -778,7 +852,16 @@ def build_ui():
                 )
                 gallery_refresh_btn.click(
                     fn=gallery_refresh,
-                    outputs=[gallery_tool_dropdown, gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                    outputs=[
+                        gallery_tool_dropdown,
+                        gallery_display,
+                        gallery_others_files,
+                        gallery_video_dropdown,
+                        gallery_video_player,
+                        gallery_video_download,
+                        gallery_audio_dropdown,
+                        gallery_audio_player,
+                    ],
                 )
 
                 # Accordion browse by category
@@ -793,7 +876,16 @@ def build_ui():
                                 btn.click(
                                     fn=lambda n=name: (n, *get_gallery_content(n)),
                                     inputs=[],
-                                    outputs=[gallery_tool_dropdown, gallery_display, gallery_others_files, gallery_audio_dropdown, gallery_audio_player],
+                                    outputs=[
+                                        gallery_tool_dropdown,
+                                        gallery_display,
+                                        gallery_others_files,
+                                        gallery_video_dropdown,
+                                        gallery_video_player,
+                                        gallery_video_download,
+                                        gallery_audio_dropdown,
+                                        gallery_audio_player,
+                                    ],
                                 )
 
     return demo
